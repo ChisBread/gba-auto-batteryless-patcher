@@ -17,6 +17,11 @@ Run with ROM as the only argument, a new ROM will be output. For GUI users, drag
 No build script, run the following command and hope it doesn't spit out any errors
 
 `$DEVKITARM/bin/arm-none-eabi-gcc -mcpu=arm7tdmi -nostartfiles -nodefaultlibs -mthumb -fPIE -Os -fno-toplevel-reorder payload.c -T payload.ld -o payload.elf; $DEVKITARM/bin/arm-none-eabi-objcopy -O binary payload.elf payload.bin; xxd -i payload.bin > payload_bin.c ; gcc -g patcher.c payload_bin.c`
+
+for mingw, use
+
+`$DEVKITARM/bin/arm-none-eabi-gcc -mcpu=arm7tdmi -nostartfiles -nodefaultlibs -mthumb -fPIE -Os -fno-toplevel-reorder payload.c -T payload.ld -o payload.elf; $DEVKITARM/bin/arm-none-eabi-objcopy -O binary payload.elf payload.bin; xxd -i payload.bin > payload_bin.c ; x86_64-w64-mingw32-gcc -g patcher.c payload_bin.c -static-libgcc -static-libstdc++ -static`
+
 ## Credits
 Written by [metroid-maniac](https://github.com/metroid-maniac/)
 

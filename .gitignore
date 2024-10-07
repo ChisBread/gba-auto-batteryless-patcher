@@ -1,0 +1,6 @@
+a.out
+a.exe
+payload_bin.*
+payload.bin
+payload.elf
+build/*

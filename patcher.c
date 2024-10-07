@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 
 #include "payload_bin.h"
 
@@ -37,14 +38,21 @@ static uint8_t *memfind(uint8_t *haystack, size_t haystack_size, uint8_t *needle
     }
     return NULL;
 }
-
-int main(int argc, char **argv)
+int pause_exit(int argc, char **argv)
 {
-    if (argc != 2)
+    if (argc <= 2)
     {
-        puts("Wrong number of args. Try dragging and dropping your ROM onto the .exe file in the file browser.");
 		scanf("%*s");
         return 1;
+    }
+    return 1;
+}
+int main(int argc, char **argv)
+{
+    if (argc < 2)
+    {
+        puts("Wrong number of args. Try dragging and dropping your ROM onto the .exe file in the file browser.");
+        return pause_exit(argc, argv);
     }
 	
 	memset(rom, 0x00ff, sizeof rom);
@@ -53,8 +61,7 @@ int main(int argc, char **argv)
     if (romfilename_len < 4 || strcasecmp(argv[1] + romfilename_len - 4, ".gba"))
     {
         puts("File does not have .gba extension.");
-		scanf("%*s");
-        return 1;
+        return pause_exit(argc, argv);
     }
 
     // Open ROM file
@@ -62,8 +69,7 @@ int main(int argc, char **argv)
     {
         puts("Could not open input file");
         puts(strerror(errno));
-		scanf("%*s");
-        return 1;
+        return pause_exit(argc, argv);
     }
 
     // Load ROM into memory
@@ -73,8 +79,7 @@ int main(int argc, char **argv)
     if (romsize > sizeof rom)
     {
         puts("ROM too large - not a GBA ROM?");
-		scanf("%*s");
-        return 1;
+        return pause_exit(argc, argv);
     }
 
     if (romsize & 0x3ffff)
@@ -91,21 +96,26 @@ int main(int argc, char **argv)
     if (memfind(rom, romsize, signature, sizeof signature - 1, 4))
     {
         puts("Signature found. ROM already patched!");
-		scanf("%*s");
-        return 1;
+        return pause_exit(argc, argv);
     }
-
-    puts("Enter 1~8 to select the manufacturer and device ID of the flash chip in your cart:");
-    puts("1. 0xBFD4:'SST 39VF512");
-    puts("2. 0x1F3D:'Atmel AT29LV512");
-    puts("3. 0xC21C:'Macronix MX29L512");
-    puts("4. 0x321B:'Panasonic MN63F805MNP");
-    puts("5. 0xC209:'Macronix MX29L010");
-    puts("6. 0x6213:'SANYO LE26FV10N1TS");
-    puts("7. 0xBF5B:'Unlicensed SST49LF080A");
-    puts("8. 0xFFFF:'Unlicensed 0xFFFF");
     int manufacturer_device_id_num;
-    scanf("%d", &manufacturer_device_id_num);
+    if (argc > 2)
+    {
+        manufacturer_device_id_num = atoi(argv[2]);
+    }
+    else
+    {
+        puts("Enter 1~8 to select the manufacturer and device ID of the flash chip in your cart:");
+        puts("1. 0xBFD4:'SST 39VF512'");
+        puts("2. 0x1F3D:'Atmel AT29LV512'");
+        puts("3. 0xC21C:'Macronix MX29L512'");
+        puts("4. 0x321B:'Panasonic MN63F805MNP'");
+        puts("5. 0xC209:'Macronix MX29L010'");
+        puts("6. 0x6213:'SANYO LE26FV10N1TS'");
+        puts("7. 0xBF5B:'Unlicensed SST49LF080A'");
+        puts("8. 0xFFFF:'Unlicensed 0xFFFF'");
+        scanf("%d", &manufacturer_device_id_num);
+    }
     if (manufacturer_device_id_num < 1 || manufacturer_device_id_num > 8)
     {
         puts("Invalid selection.");
@@ -207,15 +217,14 @@ int main(int argc, char **argv)
     {
         puts("Could not open output file");
         puts(strerror(errno));
-		scanf("%*s");
-        return 1;
+        return pause_exit(argc, argv);
     }
     
     fwrite(rom, 1, romsize, outfile);
     fflush(outfile);
 
     printf("Patched successfully. Changes written to %s\n", new_filename);
-    scanf("%*s");
+    pause_exit(argc, argv);
 	return 0;
 	
 }
