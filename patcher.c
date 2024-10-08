@@ -15,17 +15,32 @@ FILE *romfile;
 FILE *outfile;
 uint32_t romsize;
 uint8_t rom[0x02000000];
-char signature[] = "<3 from ChisBread";
+char signature[] = "<3 from ChisBreadRumble";
 
-enum payload_offsets {
-    ORIGINAL_ENTRYPOINT_ADDR,
-    PATCHED_ENTRYPOINT
-};
-
-static unsigned short m_d_ids[] = {0xBFD4, 0x1F3D, 0xC21C, 0x321B, 0xC209, 0x6213, 0xBF5B, 0xFFFF};
-static char suffixes[8][16] = {"_BFD4.gba", "_1F3D.gba", "_C21C.gba", "_321B.gba", "_C209.gba", "_6213.gba", "_BF5B.gba", "_FFFF.gba"};
-static unsigned char mov_mid[] = { 0xbf, 0x40, 0xa0, 0xe3 }; // mov r4, #0xBF
-static unsigned char mov_did[] = { 0xd4, 0x40, 0xa0, 0xe3 }; // mov r4, #0xD4
+int pause_exit(int argc, char **argv)
+{
+    if (argc <= 2)
+    {
+		scanf("%*s");
+        return 1;
+    }
+    return 1;
+}
+//BL xx 跳转指令的机器码，
+//address：执行这个 BL xx 指令时候，处于哪个地址
+//entry：跳转的目标地址，就是xx
+unsigned int NE_MakeBLmachineCode2(unsigned int address, unsigned int entry)
+{ 
+	unsigned int offset, imm32, low, high;
+	offset = ( entry - address - 4 ) & 0x007fffff;
+ 
+	high = 0xF000 | offset >> 12;
+	low = 0xF800 | (offset & 0x00000fff) >> 1;
+ 
+	imm32 = (low << 16) | high;
+ 
+	return imm32;
+}
 
 static uint8_t *memfind(uint8_t *haystack, size_t haystack_size, uint8_t *needle, size_t needle_size, int stride)
 {
@@ -38,15 +53,7 @@ static uint8_t *memfind(uint8_t *haystack, size_t haystack_size, uint8_t *needle
     }
     return NULL;
 }
-int pause_exit(int argc, char **argv)
-{
-    if (argc <= 2)
-    {
-		scanf("%*s");
-        return 1;
-    }
-    return 1;
-}
+
 int main(int argc, char **argv)
 {
     if (argc < 2)
@@ -98,59 +105,54 @@ int main(int argc, char **argv)
         puts("Signature found. ROM already patched!");
         return pause_exit(argc, argv);
     }
-    int manufacturer_device_id_num;
-    if (argc > 2)
-    {
-        manufacturer_device_id_num = atoi(argv[2]);
-    }
-    else
-    {
-        puts("Enter 1~8 to select the manufacturer and device ID of the flash chip in your cart:");
-        puts("1. 0xBFD4:'SST 39VF512'");
-        puts("2. 0x1F3D:'Atmel AT29LV512'");
-        puts("3. 0xC21C:'Macronix MX29L512'");
-        puts("4. 0x321B:'Panasonic MN63F805MNP'");
-        puts("5. 0xC209:'Macronix MX29L010'");
-        puts("6. 0x6213:'SANYO LE26FV10N1TS'");
-        puts("7. 0xBF5B:'Unlicensed SST49LF080A'");
-        puts("8. 0xFFFF:'Unlicensed 0xFFFF'");
-        scanf("%d", &manufacturer_device_id_num);
-    }
-    if (manufacturer_device_id_num < 1 || manufacturer_device_id_num > 8)
-    {
-        puts("Invalid selection.");
-        scanf("%*s");
-        return 1;
-    }
-    printf("Selected manufacturer and device ID: %04X\n", m_d_ids[manufacturer_device_id_num - 1]);
-    unsigned short selected_manufacturer_device_id = m_d_ids[manufacturer_device_id_num - 1];
-    // find mov_mid in payload_bin
-    uint8_t *mid_ptr = memfind(payload_bin, payload_bin_len, mov_mid, sizeof mov_mid, 4);
-    if (!mid_ptr)
-    {
-        puts("Could not find manufacturer ID in payload");
-        return 1;
-    }
-    // replace manufacturer ID
-    mid_ptr[0] = (uint8_t)((selected_manufacturer_device_id >> 8) & 0xFF);
-    // find mov_did in payload_bin
-    uint8_t *did_ptr = memfind(payload_bin, payload_bin_len, mov_did, sizeof mov_did, 4);
-    if (!did_ptr)
-    {
-        puts("Could not find device ID in payload");
-        return 1;
-    }
-    // replace device ID
-    did_ptr[0] = (uint8_t)(selected_manufacturer_device_id & 0xFF);
     
-
-    // Find a location to insert the payload immediately before a 0x10000 byte sector
-	int payload_base;
-    for (payload_base = romsize - 0x10000 - payload_bin_len; payload_base >= 0; payload_base -= 0x10000)
+    // puts("Is the payload THUMB? (y/n)");
+    int is_thumb = 1;
+    // char thumb[32];
+    // scanf("%s", thumb);
+    // if (thumb[0] != 'n')
+    // {
+    //     is_thumb = 1;
+    // }
+    
+    puts("Enter the address of the ROM you want to patch(e.g. 0x08000000):");
+    puts("Enter 'q' to finish:");
+    uint32_t rom_addr_to_patch[1024] = {0}; // 0存储地址个数
+    int i = 0;
+    while (1)
+    {
+        char addr[32];
+        scanf("%s", addr);
+        if (addr[0] == 'q')
+        {
+            break;
+        }
+        rom_addr_to_patch[i + 1] = strtol(addr, NULL, 16);
+        if (rom_addr_to_patch[i + 1] >= 0x08000000) {
+            rom_addr_to_patch[i + 1] -= 0x08000000;
+        }
+        i++;
+    }
+    rom_addr_to_patch[0] = i;
+    // expend payload
+    unsigned char* new_payload_bin = payload_bin;
+    unsigned int new_payload_bin_len = payload_bin_len;
+    new_payload_bin_len = rom_addr_to_patch[0] * payload_bin_len;
+    new_payload_bin = (unsigned char *)malloc(new_payload_bin_len);
+    // init new_payload_bin
+    for (int i = 0; i < rom_addr_to_patch[0]; i++)
+    {
+        memcpy(new_payload_bin + i * payload_bin_len, payload_bin, payload_bin_len);
+        printf("Patching thumb address %x\n", rom_addr_to_patch[i + 1]);
+        memcpy(new_payload_bin + i * payload_bin_len, rom + rom_addr_to_patch[i + 1], 4);
+    }
+    // Find a location to insert the payload immediately before a 0x1000 byte sector
+	int payload_base, last_payload_base;
+    for (payload_base = romsize - 0x1000 - new_payload_bin_len; payload_base >= 0; payload_base -= 0x1000)
     {
         int is_all_zeroes = 1;
         int is_all_ones = 1;
-        for (int i = 0; i < 0x10000 + payload_bin_len; ++i)
+        for (int i = 0; i < 0x1000 + new_payload_bin_len; ++i)
         {
             if (rom[payload_base+i] != 0)
             {
@@ -163,13 +165,14 @@ int main(int argc, char **argv)
         }
         if (is_all_zeroes || is_all_ones)
         {
-           break;
+            last_payload_base = payload_base;
 		}
     }
+    payload_base = last_payload_base;
 	if (payload_base < 0)
 	{
 		puts("ROM too small to install payload.");
-		if (romsize + 0x20000 > 0x2000000)
+		if (romsize + 0x2000 > 0x2000000)
 		{
 			puts("ROM alraedy max size. Cannot expand. Cannot install payload");
             scanf("%*s");
@@ -178,13 +181,34 @@ int main(int argc, char **argv)
 		else
 		{
 			puts("Expanding ROM");
-			romsize += 0x20000;
-			payload_base = romsize - 0x10000 - payload_bin_len;
+			romsize += 0x2000;
+			payload_base = romsize - 0x1000 - new_payload_bin_len;
 		}
 	}
-	
+	for (int i = 0; i < rom_addr_to_patch[0]; i++)
+    {
+        // patch rom
+        uint32_t patch_base = payload_base + i * payload_bin_len;
+        uint32_t machineCode;
+        if (!is_thumb) {
+            /*
+            当前地址0000D11C，目的地址00021888，偏移值=（00021888-（0000D11C+8））/4=0x0051D9
+            */
+            uint32_t offset = (patch_base- rom_addr_to_patch[i + 1] - 8) / 4;
+            machineCode = 0xEB000000 | offset;
+        }
+        else 
+        {
+            machineCode = NE_MakeBLmachineCode2(rom_addr_to_patch[i + 1]+0x08000000, patch_base+0x08000000);
+        }
+        printf("Patching thumb address %x to jump to %x with machine code %x\n", rom_addr_to_patch[i + 1], patch_base, machineCode);
+        rom[rom_addr_to_patch[i + 1]] = machineCode & 0xFF;
+        rom[rom_addr_to_patch[i + 1] + 1] = (machineCode >> 8) & 0xFF;
+        rom[rom_addr_to_patch[i + 1] + 2] = (machineCode >> 16) & 0xFF;
+        rom[rom_addr_to_patch[i + 1] + 3] = (machineCode >> 24) & 0xFF;
+    } 
 	printf("Installing payload at offset %x\n", payload_base);
-	memcpy(rom + payload_base, payload_bin, payload_bin_len);
+	memcpy(rom + payload_base, new_payload_bin, new_payload_bin_len);
     
 
 	// Patch the ROM entrypoint to init sram and the dummy IRQ handler, and tell the new entrypoint where the old one was.
@@ -194,20 +218,10 @@ int main(int argc, char **argv)
 		scanf("%*s");
 		return 1;
 	}
-	unsigned long original_entrypoint_offset = rom[0];
-	original_entrypoint_offset |= rom[1] << 8;
-	original_entrypoint_offset |= rom[2] << 16;
-	unsigned long original_entrypoint_address = 0x08000000 + 8 + (original_entrypoint_offset << 2);
-	printf("Original offset was %lx, original entrypoint was %lx\n", original_entrypoint_offset, original_entrypoint_address);
-	// little endian assumed, deal with it
-    
-	ORIGINAL_ENTRYPOINT_ADDR[(uint32_t*) &rom[payload_base]] = original_entrypoint_address;
-
-	unsigned long new_entrypoint_address = 0x08000000 + payload_base + PATCHED_ENTRYPOINT[(uint32_t*) payload_bin];
-	0[(uint32_t*) rom] = 0xea000000 | (new_entrypoint_address - 0x08000008) >> 2;
+	
 
 	// Flush all changes to new file
-    char *suffix = suffixes[manufacturer_device_id_num - 1];
+    char *suffix = "_rumble.gba";
     size_t suffix_length = strlen(suffix);
     char new_filename[FILENAME_MAX];
     strncpy(new_filename, argv[1], FILENAME_MAX);
