@@ -146,7 +146,7 @@ int main(int argc, char **argv)
         // 范围是正负0x400000
         for (payload_base_p = patch_addr>0x400000?patch_addr-0x400000:0;
                         payload_base_p < patch_addr+0x400000-(payload_bin_len+0x16) 
-                        && payload_base_p >= 0 && payload_base_p < romsize; payload_base_p++)
+                        && payload_base_p >= 0 && payload_base_p < romsize; payload_base_p+=4) 
         {
             int is_all_zeroes = 1, is_all_ones = 1;
             for (int k = 0; k < payload_bin_len+0x16 && payload_base_p + k >= 0 && payload_base_p + k < romsize; k++)
