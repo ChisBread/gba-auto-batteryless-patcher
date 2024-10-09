@@ -134,81 +134,95 @@ int main(int argc, char **argv)
         i++;
     }
     rom_addr_to_patch[0] = i;
-    // expend payload
-    unsigned char* new_payload_bin = payload_bin;
-    unsigned int new_payload_bin_len = payload_bin_len;
-    new_payload_bin_len = rom_addr_to_patch[0] * payload_bin_len;
-    new_payload_bin = (unsigned char *)malloc(new_payload_bin_len);
-    // init new_payload_bin
+    // init payload_bin
     for (int i = 0; i < rom_addr_to_patch[0]; i++)
     {
-        memcpy(new_payload_bin + i * payload_bin_len, payload_bin, payload_bin_len);
-        printf("Patching thumb address %x\n", rom_addr_to_patch[i + 1]);
-        memcpy(new_payload_bin + i * payload_bin_len, rom + rom_addr_to_patch[i + 1], 4);
-    }
-    // Find a location to insert the payload immediately before a 0x1000 byte sector
-	int payload_base, last_payload_base;
-    for (payload_base = romsize - 0x1000 - new_payload_bin_len; payload_base >= 0; payload_base -= 0x1000)
-    {
-        int is_all_zeroes = 1;
-        int is_all_ones = 1;
-        for (int i = 0; i < 0x1000 + new_payload_bin_len; ++i)
+        uint32_t patch_addr = rom_addr_to_patch[i + 1];
+        printf("--------------- Patching thumb address %08x ---------------\n", patch_addr);
+        // Find a location to insert the payload immediately before a 0x1000 byte sector
+        uint32_t payload_base_p = -1, payload_base = -1;
+        // 在patch_addr左右两侧，找一片空间，大小为payload_bin_len+0x16
+        // 空间内的数据都是0xff或者0x00
+        // 范围是正负0x400000
+        for (payload_base_p = patch_addr>0x400000?patch_addr-0x400000:0;
+                        payload_base_p < patch_addr+0x400000-(payload_bin_len+0x16) 
+                        && payload_base_p >= 0 && payload_base_p < romsize; payload_base_p++)
         {
-            if (rom[payload_base+i] != 0)
+            int is_all_zeroes = 1, is_all_ones = 1;
+            for (int k = 0; k < payload_bin_len+0x16 && payload_base_p + k >= 0 && payload_base_p + k < romsize; k++)
             {
-                is_all_zeroes = 0;
+                if (rom[payload_base_p + k] != 0)
+                {
+                    is_all_zeroes = 0;
+                }
+                if (rom[payload_base_p + k] != 0xff)
+                {
+                    is_all_ones = 0;
+                }
             }
-            if (rom[payload_base+i] != 0xFF)
+            if (is_all_zeroes || is_all_ones)
             {
-                is_all_ones = 0;
+                payload_base = payload_base_p + 0x8;
+                break;
             }
         }
-        if (is_all_zeroes || is_all_ones)
+        if (payload_base == -1)
         {
-            last_payload_base = payload_base;
-		}
-    }
-    payload_base = last_payload_base;
-	if (payload_base < 0)
-	{
-		puts("ROM too small to install payload.");
-		if (romsize + 0x2000 > 0x2000000)
-		{
-			puts("ROM alraedy max size. Cannot expand. Cannot install payload");
-            scanf("%*s");
-			return 1;
-		}
-		else
-		{
-			puts("Expanding ROM");
-			romsize += 0x2000;
-			payload_base = romsize - 0x1000 - new_payload_bin_len;
-		}
-	}
-	for (int i = 0; i < rom_addr_to_patch[0]; i++)
-    {
+            // 没有找到空间，尝试从尾部扩容
+            // 先计算尾部空间长度
+            uint32_t tail_space = 0;
+            int is_all_zeroes = 1, is_all_ones = 1;
+            for (int j = romsize - 1; j >= 0; j--)
+            {
+                if (rom[j] != 0)
+                {
+                    is_all_zeroes = 0;
+                }
+                if (rom[j] != 0xff)
+                {
+                    is_all_ones = 0;
+                }
+                if (!is_all_zeroes && !is_all_ones)
+                {
+                    break;
+                }
+                tail_space++;
+            }
+            printf("Tail space: %x\n", tail_space);
+            if (romsize + (payload_bin_len+0x16 - tail_space) > 0x2000000) {
+                puts("No space found to insert payload");
+                return pause_exit(argc, argv);
+            }
+            // 扩容
+            romsize += payload_bin_len+0x16 - tail_space;
+            payload_base = romsize - (payload_bin_len+0x8);
+            printf("Expanding ROM to %x bytes\n", romsize);
+        }
+        printf("BL jump offset: %08x\n", payload_base > patch_addr ? payload_base - patch_addr : patch_addr - payload_base);
         // patch rom
-        uint32_t patch_base = payload_base + i * payload_bin_len;
         uint32_t machineCode;
         if (!is_thumb) {
             /*
             当前地址0000D11C，目的地址00021888，偏移值=（00021888-（0000D11C+8））/4=0x0051D9
             */
-            uint32_t offset = (patch_base- rom_addr_to_patch[i + 1] - 8) / 4;
+            uint32_t offset = (payload_base - patch_addr - 8) / 4;
             machineCode = 0xEB000000 | offset;
         }
         else 
         {
-            machineCode = NE_MakeBLmachineCode2(rom_addr_to_patch[i + 1]+0x08000000, patch_base+0x08000000);
+            machineCode = NE_MakeBLmachineCode2(patch_addr+0x08000000, payload_base+0x08000000);
         }
-        printf("Patching thumb address %x to jump to %x with machine code %x\n", rom_addr_to_patch[i + 1], patch_base, machineCode);
-        rom[rom_addr_to_patch[i + 1]] = machineCode & 0xFF;
-        rom[rom_addr_to_patch[i + 1] + 1] = (machineCode >> 8) & 0xFF;
-        rom[rom_addr_to_patch[i + 1] + 2] = (machineCode >> 16) & 0xFF;
-        rom[rom_addr_to_patch[i + 1] + 3] = (machineCode >> 24) & 0xFF;
-    } 
-	printf("Installing payload at offset %x\n", payload_base);
-	memcpy(rom + payload_base, new_payload_bin, new_payload_bin_len);
+        printf("Save original machine code %02x%02x%02x%02x\n", rom[patch_addr], rom[patch_addr + 1], rom[patch_addr + 2], rom[patch_addr + 3]);
+        memcpy(payload_bin, rom + patch_addr, 4);
+        printf("Patching thumb address %08x to jump to %08x with machine code %08x\n", patch_addr, payload_base, machineCode);
+        rom[patch_addr] = machineCode & 0xFF;
+        rom[patch_addr + 1] = (machineCode >> 8) & 0xFF;
+        rom[patch_addr + 2] = (machineCode >> 16) & 0xFF;
+        rom[patch_addr + 3] = (machineCode >> 24) & 0xFF;
+        printf("Installing payload at offset %08x\n", payload_base);
+        memcpy(rom + payload_base, payload_bin, payload_bin_len);
+        puts("--------------- Payload installed ---------------\n");
+    }
     
 
 	// Patch the ROM entrypoint to init sram and the dummy IRQ handler, and tell the new entrypoint where the old one was.
