@@ -5,7 +5,7 @@
     #define SRAM_BANK_SEL (*(volatile unsigned short*) 0x09000000)
     
 	#define _FLASH_WRITE(pa, pd) { *(((unsigned short *)AGB_ROM)+((pa)/2)) = pd; __asm("nop"); }
-    #define SWAP_D0D1(data) ((data & 0b1111111111111100) | ((data & 0b0000000000000001) << 1) | ((data & 0b0000000000000010) >> 1))
+    #define SWAP_D0D1(data) (((data) & 0b1111111111111100) | (((data) & 0b0000000000000001) << 1) | (((data) & 0b0000000000000010) >> 1))
 typedef unsigned int uint32_t;
 typedef unsigned short uint16_t;
 typedef unsigned char uint8_t;
@@ -490,7 +490,7 @@ void program_flash_1(unsigned sa, unsigned save_size)
             _FLASH_WRITE(sa, 0xE8);
             while (1) {
                 __asm("nop");
-                if (*(((unsigned short *)AGB_ROM)+(sa/2)) & 0x80) {
+                if (*(((unsigned short *)AGB_ROM)+(sa/2)) == 0x80) {
                     break;
                 }
             }
@@ -499,6 +499,8 @@ void program_flash_1(unsigned sa, unsigned save_size)
                 if (i+j == AGB_SRAM_SIZE) SRAM_BANK_SEL = 1;
                 _FLASH_WRITE(sa+i+j, (*(unsigned char *)(AGB_SRAM+i+j+1)) << 8 | (*(unsigned char *)(AGB_SRAM+i+j)));
             }
+            _FLASH_WRITE(sa, 0xD0);
+            _FLASH_WRITE(sa, 0x70);
             i += wbuf;
         } else {
             _FLASH_WRITE(0, 0x70);
