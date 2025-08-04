@@ -182,6 +182,14 @@ int main(int argc, char **argv)
     int mode = 0;
     scanf("%d", &mode);
     FLUSH_MODE[(uint32_t*) &rom[payload_base]] = mode;
+    puts("Input write buffer size");
+    int wbuf = 0;
+    scanf("%d", &wbuf);
+    if (wbuf < 0 || wbuf > 0xFFF)
+    {
+        puts("Invalid write buffer size, defaulting to 0x0");
+        wbuf = 0x0;
+    }
     
 
 	// Patch the ROM entrypoint to init sram and the dummy IRQ handler, and tell the new entrypoint where the old one was.
@@ -317,20 +325,23 @@ int main(int argc, char **argv)
             puts("Unsure what save type this is. Defaulting to 128KB save");
         }
     }
-
+    SAVE_SIZE[(uint32_t*) &rom[payload_base]] = (SAVE_SIZE[(uint32_t*) &rom[payload_base]] & (~0xFFF)) | (wbuf & 0xFFF);
 
 	// Flush all changes to new file
-    char *suffix = mode ? "_keypad.gba" : "_auto.gba";
-    size_t suffix_length = strlen(suffix);
+    // char *suffix = mode ? "_keypad.gba" : "_auto.gba";
+    // size_t suffix_length = strlen(suffix);
+    // char new_filename[FILENAME_MAX];
+    // strncpy(new_filename, argv[1], FILENAME_MAX);
+    // strncpy(new_filename + romfilename_len - 4, suffix, strlen(suffix));
+    argv[1][strlen(argv[1]) - 4] = '\0'; // remove .gba extension
     char new_filename[FILENAME_MAX];
-    strncpy(new_filename, argv[1], FILENAME_MAX);
-    strncpy(new_filename + romfilename_len - 4, suffix, strlen(suffix));
-    
+    sprintf(new_filename, "%s_%s_wb%d.gba", argv[1], mode ? "keypad" : "auto", wbuf);
     if (!(outfile = fopen(new_filename, "wb")))
     {
         puts("Could not open output file");
         puts(strerror(errno));
-		scanf("%*s");
+        printf("Press any key to exit...\n");
+        getchar();
         return 1;
     }
     
@@ -338,7 +349,8 @@ int main(int argc, char **argv)
     fflush(outfile);
 
     printf("Patched successfully. Changes written to %s\n", new_filename);
-    scanf("%*s");
+    printf("Press any key to exit...\n");
+    getchar();
 	return 0;
 	
 }
